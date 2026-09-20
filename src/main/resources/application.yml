@@ -2,8 +2,8 @@ spring:
   application:
     name: quiz-backend
   profiles:
-    # Local DB + logging always come from application-local.properties
-    active: local
+    # Local by default; Railway/Docker set SPRING_PROFILES_ACTIVE=prod
+    default: local
 
   threads:
     virtual:
@@ -13,9 +13,8 @@ spring:
       thread-name-prefix: vt-
 
 server:
-  port: ${SERVER_PORT:8081}
+  port: ${PORT:${SERVER_PORT:8081}}
 
-# Shared defaults; application-local.properties overrides these when profile=local
 app:
   jwt:
     secret: ${JWT_SECRET:quiz-app-dev-secret-change-me-please-32bytes-min}

@@ -23,14 +23,43 @@ Controllers are thin; business logic and concurrency live in services; persisten
 ## Run
 
 ```bash
-# Postgres DB `quizapp` must exist (created automatically if you have createdb)
+# Postgres DB `quizapp` must exist
 createdb quizapp   # once
+
+# Edit local DB credentials in:
+#   src/main/resources/application-local.properties
 
 ./mvnw spring-boot:run
 ```
 
-Server: `http://localhost:8081`  
-Seeds ~612 Indian History MCQs + PRACTICE quizzes of 10 / 20 / 50 / 100 on first boot.
+Server (local): `http://localhost:8081`
+
+## Docker / Railway
+
+Multi-stage `Dockerfile` builds a JRE 21 image. Railway uses it automatically when this repo is connected.
+
+```bash
+# Local image smoke-test (needs a reachable Postgres)
+docker build -t quiz-backend .
+docker run --rm -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e PORT=8080 \
+  -e DATABASE_URL='postgresql://user:pass@host:5432/quizapp' \
+  -e JWT_SECRET='your-long-random-secret-at-least-32-chars' \
+  quiz-backend
+```
+
+### Railway variables
+
+| Variable | Required | Notes |
+|----------|----------|--------|
+| `DATABASE_URL` | yes | Auto-set when you add Railway Postgres |
+| `JWT_SECRET` | yes | Long random string (≥32 chars) |
+| `PORT` | auto | Set by Railway |
+| `SPRING_PROFILES_ACTIVE` | yes | Set to `prod` (also default in Dockerfile) |
+| `SEED_ENABLED` | optional | default `true` on first boot |
+
+Health check: `GET /health` (also `/actuator/health`).
 
 ## Auth
 

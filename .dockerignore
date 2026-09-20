@@ -1,0 +1,14 @@
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+*.md
+.env
+.env.*
+!.env.example
+target
+logs
+**/HELP.md
+docker-compose*.yml
+.DS_Store
