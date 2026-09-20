@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: quiz-backend
+  profiles:
+    # Local DB + logging always come from application-local.properties
+    active: local
+
+  threads:
+    virtual:
+      enabled: true
+  task:
+    execution:
+      thread-name-prefix: vt-
+
+server:
+  port: ${SERVER_PORT:8081}
+
+# Shared defaults; application-local.properties overrides these when profile=local
+app:
+  jwt:
+    secret: ${JWT_SECRET:quiz-app-dev-secret-change-me-please-32bytes-min}
+    expiration-ms: ${JWT_EXPIRATION_MS:604800000}
+  seed:
+    enabled: ${SEED_ENABLED:true}
+    allotted-time-ms: ${SEED_ALLOTTED_TIME_MS:60000}
+  database:
+    schema: public
+    tables:
+      users: users
+      subjects: subjects
+      questions: questions
+      quizzes: quizzes
+      quiz-questions: quiz_questions
+      user-quiz-attempts: user_quiz_attempts
+      user-quiz-attempt-questions: user_quiz_attempt_questions
+      revisions: revisions
+      revision-questions: revision_questions
+      flyway-history: flyway_schema_history
+
+logging:
+  level:
+    root: INFO
+    com.quizapp: INFO
