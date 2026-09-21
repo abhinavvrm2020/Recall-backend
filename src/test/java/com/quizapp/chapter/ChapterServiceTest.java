@@ -1,8 +1,10 @@
 package com.quizapp.chapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +15,7 @@ import com.quizapp.chapter.dto.ChapterSubmitResponse;
 import com.quizapp.chapter.dto.ProgressAnswerDto;
 import com.quizapp.chapter.dto.ProgressRequest;
 import com.quizapp.chapter.dto.SubmitChapterRequest;
+import com.quizapp.common.ApiException;
 import com.quizapp.common.util.QuestionPayloadMapper;
 import com.quizapp.question.Question;
 import com.quizapp.question.QuestionRepository;
@@ -133,6 +136,52 @@ class ChapterServiceTest {
     }
 
     @Test
+    void submitRejectsEmptyAnswers() {
+        stubInProgressChapter(List.of(101L, 102L));
+
+        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(List.of())))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Answers must contain every chapter question exactly once")
+                .extracting(error -> ((ApiException) error).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void submitRejectsMissingChapterAnswer() {
+        stubInProgressChapter(List.of(101L, 102L));
+        List<ProgressAnswerDto> answers =
+                List.of(new ProgressAnswerDto(101L, "A", false, 1_000));
+
+        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Answers must contain every chapter question exactly once");
+    }
+
+    @Test
+    void submitRejectsDuplicateQuestionAnswers() {
+        stubInProgressChapter(List.of(101L, 102L));
+        List<ProgressAnswerDto> answers = List.of(
+                new ProgressAnswerDto(101L, "A", false, 1_000),
+                new ProgressAnswerDto(101L, "B", false, 1_000));
+
+        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Answers must contain every chapter question exactly once");
+    }
+
+    @Test
+    void submitRejectsQuestionOutsideChapter() {
+        stubInProgressChapter(List.of(101L, 102L));
+        List<ProgressAnswerDto> answers = List.of(
+                new ProgressAnswerDto(101L, "A", false, 1_000),
+                new ProgressAnswerDto(999L, "B", false, 1_000));
+
+        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Answers must contain every chapter question exactly once");
+    }
+
+    @Test
     void submitCompletesScoresAnswersAndCreatesRevisionForWrongAnswers() throws Exception {
         Chapter chapter = chapter(10L, 7L);
         ChapterProgress progress = progress(20L, 10L, "IN_PROGRESS");
@@ -147,14 +196,12 @@ class ChapterServiceTest {
 
         when(chapterRepository.findById(10L)).thenReturn(Optional.of(chapter));
         when(progressRepository.findByUserIdAndChapterId(20L, 10L)).thenReturn(Optional.of(progress));
-        when(chapterQuestionRepository.existsByChapterIdAndQuestionId(10L, 101L)).thenReturn(true);
-        when(chapterQuestionRepository.existsByChapterIdAndQuestionId(10L, 102L)).thenReturn(true);
+        when(chapterQuestionRepository.findByChapterIdOrderByPositionAsc(10L))
+                .thenReturn(List.of(chapterQuestion(10L, 101L), chapterQuestion(10L, 102L)));
         when(questionRepository.findAllById(List.of(101L, 102L))).thenReturn(List.of(first, second));
         when(questionPayloadMapper.isCorrect(first, "A")).thenReturn(true);
         when(questionPayloadMapper.isCorrect(second, "A")).thenReturn(false);
         when(revisionAlgorithm.candidates(any(), any())).thenReturn(List.of(candidate));
-        when(revisionRepository.findFirstByUserIdAndSubjectIdAndStatus(20L, 7L, "PENDING"))
-                .thenReturn(Optional.empty());
         when(revisionRepository.save(any(Revision.class))).thenReturn(revision);
         when(revisionQuestionRepository.findByRevisionIdAndQuestionId(30L, 102L))
                 .thenReturn(Optional.empty());
@@ -178,7 +225,26 @@ class ChapterServiceTest {
         assertThat(stored)
                 .extracting(ProgressAnswerDto::correct)
                 .containsExactly(true, false);
+        verify(revisionRepository, never())
+                .findFirstByUserIdAndSubjectIdAndStatus(20L, 7L, "PENDING");
         verify(progressRepository).save(progress);
+    }
+
+    private void stubInProgressChapter(List<Long> questionIds) {
+        when(chapterRepository.findById(10L)).thenReturn(Optional.of(chapter(10L, 7L)));
+        when(progressRepository.findByUserIdAndChapterId(20L, 10L))
+                .thenReturn(Optional.of(progress(20L, 10L, "IN_PROGRESS")));
+        when(chapterQuestionRepository.findByChapterIdOrderByPositionAsc(10L))
+                .thenReturn(questionIds.stream()
+                        .map(questionId -> chapterQuestion(10L, questionId))
+                        .toList());
+    }
+
+    private static ChapterQuestion chapterQuestion(Long chapterId, Long questionId) {
+        ChapterQuestion chapterQuestion = new ChapterQuestion();
+        chapterQuestion.setChapterId(chapterId);
+        chapterQuestion.setQuestionId(questionId);
+        return chapterQuestion;
     }
 
     private static Chapter chapter(Long id, Long subjectId) {

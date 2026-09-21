@@ -23,9 +23,11 @@ import com.quizapp.revision.RevisionQuestionRepository;
 import com.quizapp.revision.RevisionRepository;
 import com.quizapp.subject.SubjectService;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -149,12 +151,13 @@ public class ChapterService {
         Chapter chapter = requireChapter(chapterId);
         ChapterProgress progress = requireInProgress(chapterId, userId);
         List<ProgressAnswerDto> answers = req.answers();
+        List<Long> expectedQuestionIds = chapterQuestionRepository
+                .findByChapterIdOrderByPositionAsc(chapterId)
+                .stream()
+                .map(ChapterQuestion::getQuestionId)
+                .toList();
+        validateCompleteAnswers(answers, expectedQuestionIds);
         List<Long> questionIds = answers.stream().map(ProgressAnswerDto::questionId).toList();
-        for (Long questionId : questionIds) {
-            if (!chapterQuestionRepository.existsByChapterIdAndQuestionId(chapterId, questionId)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Question not in this chapter");
-            }
-        }
 
         Map<Long, Question> questionsById = questionRepository.findAllById(questionIds).stream()
                 .collect(Collectors.toMap(
@@ -187,7 +190,7 @@ public class ChapterService {
         RevisionSummaryDto revisionSummary = null;
         List<RevisionAlgorithm.Candidate> candidates = revisionAlgorithm.candidates(scored, questionsById);
         if (!candidates.isEmpty()) {
-            Revision revision = upsertPendingRevision(userId, chapter.getSubjectId());
+            Revision revision = createPendingRevision(userId, chapter.getSubjectId());
             for (RevisionAlgorithm.Candidate candidate : candidates) {
                 mergeCandidate(revision.getId(), candidate);
             }
@@ -202,6 +205,28 @@ public class ChapterService {
         int preparednessPct = total > 0 ? (int) Math.round(100.0 * correctCount / total) : 0;
         return new ChapterSubmitResponse(
                 correctCount, wrongCount, total, preparednessPct, revisionSummary);
+    }
+
+    private void validateCompleteAnswers(
+            List<ProgressAnswerDto> answers, List<Long> expectedQuestionIds) {
+        if (answers == null || answers.isEmpty()) {
+            throw incompleteAnswers();
+        }
+        List<Long> submittedQuestionIds =
+                answers.stream().map(ProgressAnswerDto::questionId).toList();
+        Set<Long> submittedUniqueIds = new HashSet<>(submittedQuestionIds);
+        Set<Long> expectedUniqueIds = new HashSet<>(expectedQuestionIds);
+        if (submittedQuestionIds.size() != expectedQuestionIds.size()
+                || submittedUniqueIds.size() != submittedQuestionIds.size()
+                || !submittedUniqueIds.equals(expectedUniqueIds)) {
+            throw incompleteAnswers();
+        }
+    }
+
+    private ApiException incompleteAnswers() {
+        return new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "Answers must contain every chapter question exactly once");
     }
 
     private Chapter requireChapter(Long chapterId) {
@@ -300,17 +325,12 @@ public class ChapterService {
         }
     }
 
-    private Revision upsertPendingRevision(Long userId, Long subjectId) {
-        return revisionRepository
-                .findFirstByUserIdAndSubjectIdAndStatus(userId, subjectId, "PENDING")
-                .map(revisionRepository::save)
-                .orElseGet(() -> {
-                    Revision created = new Revision();
-                    created.setUserId(userId);
-                    created.setSubjectId(subjectId);
-                    created.setStatus("PENDING");
-                    return revisionRepository.save(created);
-                });
+    private Revision createPendingRevision(Long userId, Long subjectId) {
+        Revision created = new Revision();
+        created.setUserId(userId);
+        created.setSubjectId(subjectId);
+        created.setStatus("PENDING");
+        return revisionRepository.save(created);
     }
 
     private void mergeCandidate(Long revisionId, RevisionAlgorithm.Candidate candidate) {
