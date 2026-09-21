@@ -1,6 +1,7 @@
 package com.quizapp.chapter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quizapp.attempt.dto.RevisionSummaryDto;
 import com.quizapp.chapter.dto.ChapterDetailDto;
@@ -247,7 +248,7 @@ public class ChapterService {
 
     private ProgressSnapshotDto snapshot(ChapterProgress progress, int totalQuestions) {
         if (progress == null) {
-            return new ProgressSnapshotDto("NOT_STARTED", 0, 0, 0, totalQuestions, null);
+            return new ProgressSnapshotDto("NOT_STARTED", 0, 0, 0, totalQuestions, null, List.of());
         }
         return new ProgressSnapshotDto(
                 progress.getStatus(),
@@ -255,7 +256,8 @@ public class ChapterService {
                 progress.getCorrectCount(),
                 progress.getWrongCount(),
                 totalQuestions,
-                progress.getRevisionId());
+                progress.getRevisionId(),
+                readAnswers(progress.getAnswersJson()));
     }
 
     private RevisionSummaryDto revisionSummary(ChapterProgress progress) {
@@ -284,6 +286,17 @@ public class ChapterService {
             return objectMapper.writeValueAsString(answers);
         } catch (JsonProcessingException e) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to serialize chapter answers");
+        }
+    }
+
+    private List<ProgressAnswerDto> readAnswers(String answersJson) {
+        if (answersJson == null || answersJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(answersJson, new TypeReference<>() {});
+        } catch (JsonProcessingException e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Unable to parse chapter answers");
         }
     }
 

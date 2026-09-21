@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quizapp.chapter.dto.ChapterDetailDto;
 import com.quizapp.chapter.dto.ChapterSubmitResponse;
 import com.quizapp.chapter.dto.ProgressAnswerDto;
 import com.quizapp.chapter.dto.ProgressRequest;
@@ -100,6 +101,35 @@ class ChapterServiceTest {
                 objectMapper.readValue(progress.getAnswersJson(), new TypeReference<>() {});
         assertThat(stored).isEqualTo(answers);
         verify(progressRepository).save(progress);
+    }
+
+    @Test
+    void getReturnsStoredProgressAnswersForResume() throws Exception {
+        Chapter chapter = chapter(10L, 7L);
+        ChapterProgress progress = progress(20L, 10L, "IN_PROGRESS");
+        List<ProgressAnswerDto> answers =
+                List.of(new ProgressAnswerDto(101L, "B", false, 1_200));
+        progress.setCurrentIndex(1);
+        progress.setCorrectCount(0);
+        progress.setWrongCount(1);
+        progress.setAnswersJson(objectMapper.writeValueAsString(answers));
+        ChapterQuestion chapterQuestion = new ChapterQuestion();
+        chapterQuestion.setChapterId(10L);
+        chapterQuestion.setQuestionId(101L);
+        Question question = question(101L, "A");
+
+        when(chapterRepository.findById(10L)).thenReturn(Optional.of(chapter));
+        when(chapterQuestionRepository.findByChapterIdOrderByPositionAsc(10L))
+                .thenReturn(List.of(chapterQuestion));
+        when(questionRepository.findAllById(List.of(101L))).thenReturn(List.of(question));
+        when(questionPayloadMapper.text(question)).thenReturn("Question?");
+        when(questionPayloadMapper.options(question)).thenReturn(Map.of("A", "First", "B", "Second"));
+        when(questionPayloadMapper.explanation(question)).thenReturn(null);
+        when(progressRepository.findByUserIdAndChapterId(20L, 10L)).thenReturn(Optional.of(progress));
+
+        ChapterDetailDto detail = service.get(10L, 20L);
+
+        assertThat(detail.progress().answers()).isEqualTo(answers);
     }
 
     @Test
