@@ -1,7 +1,5 @@
 package com.quizapp.revision;
 
-import com.quizapp.attempt.dto.CheckAnswerRequest;
-import com.quizapp.attempt.dto.CheckAnswerResponse;
 import com.quizapp.common.util.AuthContext;
 import com.quizapp.revision.dto.RevisionDetailDto;
 import com.quizapp.revision.dto.RevisionListItemDto;
@@ -34,12 +32,6 @@ public class RevisionController {
     @GetMapping("/{id}")
     public RevisionDetailDto get(@PathVariable Long id) {
         return revisionService.getDueQuestions(id, AuthContext.currentUserId());
-    }
-
-    @PostMapping("/{id}/check")
-    public CheckAnswerResponse check(
-            @PathVariable Long id, @Valid @RequestBody CheckAnswerRequest request) {
-        return revisionService.check(id, AuthContext.currentUserId(), request);
     }
 
     @PostMapping("/{id}/submit")

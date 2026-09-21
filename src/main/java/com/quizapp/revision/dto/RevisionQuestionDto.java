@@ -8,5 +8,7 @@ public record RevisionQuestionDto(
         String question,
         Map<String, String> options,
         int allottedTimeMs,
+        String correctOption,
+        String explanation,
         String reason,
         int remainingReviews) {}

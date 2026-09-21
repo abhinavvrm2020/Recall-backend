@@ -1,8 +1,6 @@
 package com.quizapp.attempt;
 
 import com.quizapp.attempt.dto.AttemptHistoryDto;
-import com.quizapp.attempt.dto.CheckAnswerRequest;
-import com.quizapp.attempt.dto.CheckAnswerResponse;
 import com.quizapp.attempt.dto.SubmitAttemptRequest;
 import com.quizapp.attempt.dto.SubmitAttemptResponse;
 import com.quizapp.common.util.AuthContext;
@@ -23,12 +21,6 @@ public class AttemptController {
 
     public AttemptController(AttemptService attemptService) {
         this.attemptService = attemptService;
-    }
-
-    @PostMapping("/attempts/{id}/check")
-    public CheckAnswerResponse check(
-            @PathVariable Long id, @Valid @RequestBody CheckAnswerRequest request) {
-        return attemptService.check(id, AuthContext.currentUserId(), request);
     }
 
     @PostMapping("/attempts/{id}/submit")

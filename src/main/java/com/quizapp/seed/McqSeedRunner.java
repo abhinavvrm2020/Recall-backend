@@ -3,23 +3,20 @@ package com.quizapp.seed;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.quizapp.chapter.Chapter;
+import com.quizapp.chapter.ChapterQuestion;
+import com.quizapp.chapter.ChapterQuestionRepository;
+import com.quizapp.chapter.ChapterRepository;
 import com.quizapp.common.util.Futures;
 import com.quizapp.config.VirtualThreadConfig;
 import com.quizapp.question.Question;
 import com.quizapp.question.QuestionRepository;
-import com.quizapp.quiz.Quiz;
-import com.quizapp.quiz.QuizQuestion;
-import com.quizapp.quiz.QuizQuestionRepository;
-import com.quizapp.quiz.QuizRepository;
 import com.quizapp.subject.Subject;
 import com.quizapp.subject.SubjectRepository;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,15 +32,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class McqSeedRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(McqSeedRunner.class);
-    private static final int[] SIZES = {10, 20, 50, 100};
 
     private final boolean enabled;
     private final int allottedTimeMs;
     private final ObjectMapper mapper;
     private final SubjectRepository subjects;
     private final QuestionRepository questions;
-    private final QuizRepository quizzes;
-    private final QuizQuestionRepository quizQuestions;
+    private final ChapterRepository chapters;
+    private final ChapterQuestionRepository chapterQuestions;
     private final ExecutorService virtualExecutor;
 
     public McqSeedRunner(
@@ -52,16 +48,16 @@ public class McqSeedRunner implements ApplicationRunner {
             ObjectMapper mapper,
             SubjectRepository subjects,
             QuestionRepository questions,
-            QuizRepository quizzes,
-            QuizQuestionRepository quizQuestions,
+            ChapterRepository chapters,
+            ChapterQuestionRepository chapterQuestions,
             @Qualifier(VirtualThreadConfig.VIRTUAL_EXECUTOR) ExecutorService virtualExecutor) {
         this.enabled = enabled;
         this.allottedTimeMs = allottedTimeMs;
         this.mapper = mapper;
         this.subjects = subjects;
         this.questions = questions;
-        this.quizzes = quizzes;
-        this.quizQuestions = quizQuestions;
+        this.chapters = chapters;
+        this.chapterQuestions = chapterQuestions;
         this.virtualExecutor = virtualExecutor;
     }
 
@@ -82,38 +78,29 @@ public class McqSeedRunner implements ApplicationRunner {
 
         List<Question> bank = questions.findBySubjectId(subject.getId());
         if (bank.isEmpty()) {
-            log.warn("No questions to build quizzes");
+            log.warn("No questions to build chapter");
             return;
         }
 
-        for (int size : SIZES) {
-            if (quizzes.existsBySubjectIdAndTotalQuestionsAndType(subject.getId(), size, "PRACTICE")) {
-                continue;
-            }
-            if (bank.size() < size) {
-                log.warn("Skipping quiz size {} — only {} questions", size, bank.size());
-                continue;
-            }
-            Quiz quiz = new Quiz();
-            quiz.setSubjectId(subject.getId());
-            quiz.setStatus("ACTIVE");
-            quiz.setTotalQuestions(size);
-            quiz.setType("PRACTICE");
-            quizzes.save(quiz);
+        if (!chapters.existsBySubjectIdAndTitle(subject.getId(), "Full practice set")) {
+            Chapter chapter = new Chapter();
+            chapter.setSubjectId(subject.getId());
+            chapter.setTitle("Full practice set");
+            chapter.setSortOrder(0);
+            chapter.setStatus("ACTIVE");
+            chapters.save(chapter);
 
-            List<Question> pick = new ArrayList<>(bank);
-            Collections.shuffle(pick);
-            List<QuizQuestion> links = IntStream.range(0, size)
-                    .mapToObj(i -> {
-                        QuizQuestion qq = new QuizQuestion();
-                        qq.setQuizId(quiz.getId());
-                        qq.setQuestionId(pick.get(i).getId());
-                        qq.setPosition(i + 1);
-                        return qq;
+            List<ChapterQuestion> links = java.util.stream.IntStream.range(0, bank.size())
+                    .mapToObj(position -> {
+                        ChapterQuestion link = new ChapterQuestion();
+                        link.setChapterId(chapter.getId());
+                        link.setQuestionId(bank.get(position).getId());
+                        link.setPosition(position);
+                        return link;
                     })
                     .toList();
-            quizQuestions.saveAll(links);
-            log.info("Seeded PRACTICE quiz id={} size={}", quiz.getId(), size);
+            chapterQuestions.saveAll(links);
+            log.info("Seeded chapter id={} with {} questions", chapter.getId(), links.size());
         }
     }
 

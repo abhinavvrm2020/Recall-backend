@@ -185,6 +185,8 @@ public class RevisionService {
                 questionPayloadMapper.text(question),
                 questionPayloadMapper.options(question),
                 question.getAllottedTimeMs(),
+                question.getCorrectOption(),
+                questionPayloadMapper.explanation(question),
                 revisionQuestion.getReason(),
                 revisionQuestion.getRemainingReviews());
     }
