@@ -1,6 +1,5 @@
 package com.quizapp.revision;
 
-import com.quizapp.attempt.UserQuizAttemptQuestion;
 import com.quizapp.question.Question;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -14,18 +13,19 @@ public class RevisionAlgorithm {
 
     public record Candidate(Long questionId, String reason, int remainingReviews, Instant nextReviewAt) {}
 
-    public List<Candidate> candidates(
-            List<UserQuizAttemptQuestion> answers, Map<Long, Question> questionsById) {
+    public record ScoredAnswer(Long questionId, boolean correct, int timeTakenMs) {}
+
+    public List<Candidate> candidates(List<ScoredAnswer> answers, Map<Long, Question> questionsById) {
         List<Candidate> out = new ArrayList<>();
         Instant now = Instant.now();
-        for (UserQuizAttemptQuestion a : answers) {
-            Question q = questionsById.get(a.getQuestionId());
+        for (ScoredAnswer a : answers) {
+            Question q = questionsById.get(a.questionId());
             if (q == null) continue;
-            boolean slow = a.getTimeTakenMs() > (int) (q.getAllottedTimeMs() * 0.75);
-            if (!a.isCorrect()) {
-                out.add(new Candidate(a.getQuestionId(), "WRONG", 3, now));
+            boolean slow = a.timeTakenMs() > (int) (q.getAllottedTimeMs() * 0.75);
+            if (!a.correct()) {
+                out.add(new Candidate(a.questionId(), "WRONG", 3, now));
             } else if (slow) {
-                out.add(new Candidate(a.getQuestionId(), "SLOW", 2, now));
+                out.add(new Candidate(a.questionId(), "SLOW", 2, now));
             }
         }
         return out;

@@ -123,6 +123,8 @@ public class QuizService {
                 question.getId(),
                 questionPayloadMapper.text(question),
                 questionPayloadMapper.options(question),
-                question.getAllottedTimeMs());
+                question.getAllottedTimeMs(),
+                question.getCorrectOption(),
+                questionPayloadMapper.explanation(question));
     }
 }

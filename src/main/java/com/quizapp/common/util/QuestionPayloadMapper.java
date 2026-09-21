@@ -29,6 +29,10 @@ public class QuestionPayloadMapper {
         return options;
     }
 
+    public String explanation(Question question) {
+        return node(question).path("explanation").asText("");
+    }
+
     public boolean isCorrect(Question question, String selectedOption) {
         if (selectedOption == null) {
             return false;

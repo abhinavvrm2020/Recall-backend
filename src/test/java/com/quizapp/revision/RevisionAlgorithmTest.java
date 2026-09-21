@@ -2,7 +2,6 @@ package com.quizapp.revision;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.quizapp.attempt.UserQuizAttemptQuestion;
 import com.quizapp.question.Question;
 import java.util.List;
 import java.util.Map;
@@ -18,9 +17,9 @@ class RevisionAlgorithmTest {
         Question q2 = question(2L, 60_000);
         Question q3 = question(3L, 60_000);
 
-        UserQuizAttemptQuestion wrong = answer(1L, false, 10_000);
-        UserQuizAttemptQuestion slowCorrect = answer(2L, true, 50_000); // > 75% of 60s
-        UserQuizAttemptQuestion fastCorrect = answer(3L, true, 10_000);
+        var wrong = new RevisionAlgorithm.ScoredAnswer(1L, false, 10_000);
+        var slowCorrect = new RevisionAlgorithm.ScoredAnswer(2L, true, 50_000); // > 75% of 60s
+        var fastCorrect = new RevisionAlgorithm.ScoredAnswer(3L, true, 10_000);
 
         var candidates = algorithm.candidates(
                 List.of(wrong, slowCorrect, fastCorrect),
@@ -41,13 +40,5 @@ class RevisionAlgorithmTest {
         q.setSubjectId(1L);
         q.setQuestionJson("{}");
         return q;
-    }
-
-    private static UserQuizAttemptQuestion answer(Long qid, boolean correct, int time) {
-        UserQuizAttemptQuestion a = new UserQuizAttemptQuestion();
-        a.setQuestionId(qid);
-        a.setCorrect(correct);
-        a.setTimeTakenMs(time);
-        return a;
     }
 }

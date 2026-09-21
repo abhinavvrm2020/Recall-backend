@@ -70,8 +70,6 @@ public class AttemptService {
         this.virtualExecutor = virtualExecutor;
     }
 
-    private record ScoredAnswer(Long questionId, boolean correct, int timeTakenMs) {}
-
     @Transactional(readOnly = true)
     public CheckAnswerResponse check(Long attemptId, Long userId, CheckAnswerRequest request) {
         UserQuizAttempt attempt = requireOwnedOpenAttempt(attemptId, userId);
@@ -100,12 +98,12 @@ public class AttemptService {
         Quiz quiz = quizFut.join();
         Map<Long, Question> questionsById = questionsFut.join();
 
-        List<ScoredAnswer> scored = Futures.joinAll(answers.stream()
+        List<RevisionAlgorithm.ScoredAnswer> scored = Futures.joinAll(answers.stream()
                 .map(item -> Futures.supply(() -> score(item, questionsById), virtualExecutor))
                 .toList());
 
         List<UserQuizAttemptQuestion> rows = scored.stream().map(s -> toRow(attempt.getId(), s)).toList();
-        int correctCount = (int) scored.stream().filter(ScoredAnswer::correct).count();
+        int correctCount = (int) scored.stream().filter(RevisionAlgorithm.ScoredAnswer::correct).count();
 
         attemptQuestionRepository.saveAll(rows);
         attempt.setTotalCorrect(correctCount);
@@ -113,7 +111,7 @@ public class AttemptService {
         attempt.setCompletedAt(Instant.now());
         attemptRepository.save(attempt);
 
-        List<RevisionAlgorithm.Candidate> candidates = revisionAlgorithm.candidates(rows, questionsById);
+        List<RevisionAlgorithm.Candidate> candidates = revisionAlgorithm.candidates(scored, questionsById);
         if (candidates.isEmpty()) {
             return new SubmitAttemptResponse(attempt.getId(), correctCount, rows.size(), null);
         }
@@ -148,16 +146,16 @@ public class AttemptService {
         return attempt;
     }
 
-    private ScoredAnswer score(AnswerItem item, Map<Long, Question> questionsById) {
+    private RevisionAlgorithm.ScoredAnswer score(AnswerItem item, Map<Long, Question> questionsById) {
         Question question = questionsById.get(item.questionId());
         if (question == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown question " + item.questionId());
         }
         boolean correct = questionPayloadMapper.isCorrect(question, item.selectedOption());
-        return new ScoredAnswer(question.getId(), correct, Math.max(0, item.timeTakenMs()));
+        return new RevisionAlgorithm.ScoredAnswer(question.getId(), correct, Math.max(0, item.timeTakenMs()));
     }
 
-    private static UserQuizAttemptQuestion toRow(Long attemptId, ScoredAnswer scored) {
+    private static UserQuizAttemptQuestion toRow(Long attemptId, RevisionAlgorithm.ScoredAnswer scored) {
         UserQuizAttemptQuestion row = new UserQuizAttemptQuestion();
         row.setAttemptId(attemptId);
         row.setQuestionId(scored.questionId());
