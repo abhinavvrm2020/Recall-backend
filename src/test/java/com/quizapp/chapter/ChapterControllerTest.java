@@ -6,7 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.quizapp.chapter.dto.ChapterDetailDto;
-import com.quizapp.chapter.dto.ChapterListItemDto;
+import com.quizapp.chapter.dto.SubjectChaptersResponse;
 import com.quizapp.chapter.dto.ChapterSubmitResponse;
 import com.quizapp.chapter.dto.ProgressRequest;
 import com.quizapp.chapter.dto.SubmitChapterRequest;
@@ -33,7 +33,7 @@ class ChapterControllerTest {
     @Test
     void exposesChapterApiAndDelegatesWithCurrentUser() throws Exception {
         authenticate(42L);
-        List<ChapterListItemDto> chapters = List.of();
+        SubjectChaptersResponse chapters = new SubjectChaptersResponse(null, 0, List.of());
         ChapterDetailDto detail = mock(ChapterDetailDto.class);
         ProgressRequest progress = mock(ProgressRequest.class);
         SubmitChapterRequest submit = mock(SubmitChapterRequest.class);

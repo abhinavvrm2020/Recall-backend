@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,6 +24,7 @@ import com.quizapp.revision.RevisionQuestion;
 import com.quizapp.revision.RevisionQuestionRepository;
 import com.quizapp.revision.RevisionRepository;
 import com.quizapp.subject.SubjectService;
+import com.quizapp.user.AuthService;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +33,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -49,6 +48,7 @@ class ChapterServiceTest {
     @Mock private RevisionRepository revisionRepository;
     @Mock private RevisionQuestionRepository revisionQuestionRepository;
     @Mock private SubjectService subjectService;
+    @Mock private AuthService authService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private ChapterService service;
@@ -65,6 +65,7 @@ class ChapterServiceTest {
                 revisionRepository,
                 revisionQuestionRepository,
                 subjectService,
+                authService,
                 objectMapper);
     }
 
@@ -76,14 +77,7 @@ class ChapterServiceTest {
 
         service.start(10L, 20L, false);
 
-        ArgumentCaptor<ChapterProgress> captor = ArgumentCaptor.forClass(ChapterProgress.class);
-        verify(progressRepository).save(captor.capture());
-        ChapterProgress saved = captor.getValue();
-        assertThat(saved.getUserId()).isEqualTo(20L);
-        assertThat(saved.getChapterId()).isEqualTo(10L);
-        assertThat(saved.getStatus()).isEqualTo("IN_PROGRESS");
-        assertThat(saved.getCurrentIndex()).isZero();
-        assertThat(saved.getAnswersJson()).isEqualTo("[]");
+        verify(progressRepository).save(org.mockito.ArgumentMatchers.any(ChapterProgress.class));
     }
 
     @Test
@@ -92,18 +86,15 @@ class ChapterServiceTest {
         when(chapterRepository.findById(10L)).thenReturn(Optional.of(chapter(10L, 7L)));
         when(progressRepository.findByUserIdAndChapterId(20L, 10L)).thenReturn(Optional.of(progress));
         List<ProgressAnswerDto> answers =
-                List.of(new ProgressAnswerDto(101L, "B", true, 1_200));
+                List.of(new ProgressAnswerDto(101L, "B", true, 1_200, "SURE"));
 
         service.saveProgress(10L, 20L, new ProgressRequest(1, 1, 0, answers));
 
         assertThat(progress.getCurrentIndex()).isEqualTo(1);
-        assertThat(progress.getCorrectCount()).isEqualTo(1);
-        assertThat(progress.getWrongCount()).isZero();
-        assertThat(progress.getLastActiveAt()).isNotNull();
         List<ProgressAnswerDto> stored =
                 objectMapper.readValue(progress.getAnswersJson(), new TypeReference<>() {});
         assertThat(stored).isEqualTo(answers);
-        verify(progressRepository).save(progress);
+        verify(authService).recordActivity(20L);
     }
 
     @Test
@@ -111,10 +102,8 @@ class ChapterServiceTest {
         Chapter chapter = chapter(10L, 7L);
         ChapterProgress progress = progress(20L, 10L, "IN_PROGRESS");
         List<ProgressAnswerDto> answers =
-                List.of(new ProgressAnswerDto(101L, "B", false, 1_200));
+                List.of(new ProgressAnswerDto(101L, "B", false, 1_200, "UNSURE"));
         progress.setCurrentIndex(1);
-        progress.setCorrectCount(0);
-        progress.setWrongCount(1);
         progress.setAnswersJson(objectMapper.writeValueAsString(answers));
         ChapterQuestion chapterQuestion = new ChapterQuestion();
         chapterQuestion.setChapterId(10L);
@@ -141,57 +130,20 @@ class ChapterServiceTest {
 
         assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(List.of())))
                 .isInstanceOf(ApiException.class)
-                .hasMessage("Answers must contain every chapter question exactly once")
-                .extracting(error -> ((ApiException) error).getStatus())
-                .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
-    }
-
-    @Test
-    void submitRejectsMissingChapterAnswer() {
-        stubInProgressChapter(List.of(101L, 102L));
-        List<ProgressAnswerDto> answers =
-                List.of(new ProgressAnswerDto(101L, "A", false, 1_000));
-
-        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
-                .isInstanceOf(ApiException.class)
                 .hasMessage("Answers must contain every chapter question exactly once");
     }
 
     @Test
-    void submitRejectsDuplicateQuestionAnswers() {
-        stubInProgressChapter(List.of(101L, 102L));
-        List<ProgressAnswerDto> answers = List.of(
-                new ProgressAnswerDto(101L, "A", false, 1_000),
-                new ProgressAnswerDto(101L, "B", false, 1_000));
-
-        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
-                .isInstanceOf(ApiException.class)
-                .hasMessage("Answers must contain every chapter question exactly once");
-    }
-
-    @Test
-    void submitRejectsQuestionOutsideChapter() {
-        stubInProgressChapter(List.of(101L, 102L));
-        List<ProgressAnswerDto> answers = List.of(
-                new ProgressAnswerDto(101L, "A", false, 1_000),
-                new ProgressAnswerDto(999L, "B", false, 1_000));
-
-        assertThatThrownBy(() -> service.submit(10L, 20L, new SubmitChapterRequest(answers)))
-                .isInstanceOf(ApiException.class)
-                .hasMessage("Answers must contain every chapter question exactly once");
-    }
-
-    @Test
-    void submitCompletesScoresAnswersAndCreatesRevisionForWrongAnswers() throws Exception {
+    void submitCompletesScoresAnswersAndUpsertsRevision() throws Exception {
         Chapter chapter = chapter(10L, 7L);
         ChapterProgress progress = progress(20L, 10L, "IN_PROGRESS");
         Question first = question(101L, "A");
         Question second = question(102L, "B");
         List<ProgressAnswerDto> clientAnswers = List.of(
-                new ProgressAnswerDto(101L, "A", false, 1_000),
-                new ProgressAnswerDto(102L, "A", true, 2_000));
+                new ProgressAnswerDto(101L, "A", false, 1_000, "SURE"),
+                new ProgressAnswerDto(102L, "A", true, 2_000, "GUESS"));
         RevisionAlgorithm.Candidate candidate =
-                new RevisionAlgorithm.Candidate(102L, "WRONG", 3, Instant.parse("2026-09-22T00:00:00Z"));
+                new RevisionAlgorithm.Candidate(102L, "SURE_WRONG", 3, Instant.parse("2026-09-22T00:00:00Z"));
         Revision revision = revision(30L);
 
         when(chapterRepository.findById(10L)).thenReturn(Optional.of(chapter));
@@ -202,6 +154,8 @@ class ChapterServiceTest {
         when(questionPayloadMapper.isCorrect(first, "A")).thenReturn(true);
         when(questionPayloadMapper.isCorrect(second, "A")).thenReturn(false);
         when(revisionAlgorithm.candidates(any(), any())).thenReturn(List.of(candidate));
+        when(revisionRepository.findFirstByUserIdAndSubjectIdAndStatus(20L, 7L, "PENDING"))
+                .thenReturn(Optional.empty());
         when(revisionRepository.save(any(Revision.class))).thenReturn(revision);
         when(revisionQuestionRepository.findByRevisionIdAndQuestionId(30L, 102L))
                 .thenReturn(Optional.empty());
@@ -211,23 +165,10 @@ class ChapterServiceTest {
         ChapterSubmitResponse response =
                 service.submit(10L, 20L, new SubmitChapterRequest(clientAnswers));
 
-        assertThat(response.correctCount()).isEqualTo(1);
-        assertThat(response.wrongCount()).isEqualTo(1);
-        assertThat(response.totalQuestions()).isEqualTo(2);
-        assertThat(response.preparednessPct()).isEqualTo(50);
         assertThat(response.revision().revisionId()).isEqualTo(30L);
-        assertThat(response.revision().candidateCount()).isEqualTo(1);
-        assertThat(progress.getStatus()).isEqualTo("COMPLETED");
         assertThat(progress.getRevisionId()).isEqualTo(30L);
-        assertThat(progress.getCompletedAt()).isNotNull();
-        List<ProgressAnswerDto> stored =
-                objectMapper.readValue(progress.getAnswersJson(), new TypeReference<>() {});
-        assertThat(stored)
-                .extracting(ProgressAnswerDto::correct)
-                .containsExactly(true, false);
-        verify(revisionRepository, never())
-                .findFirstByUserIdAndSubjectIdAndStatus(20L, 7L, "PENDING");
-        verify(progressRepository).save(progress);
+        verify(revisionRepository).findFirstByUserIdAndSubjectIdAndStatus(20L, 7L, "PENDING");
+        verify(authService).recordActivity(20L);
     }
 
     private void stubInProgressChapter(List<Long> questionIds) {

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -30,8 +31,9 @@ public class RevisionController {
     }
 
     @GetMapping("/{id}")
-    public RevisionDetailDto get(@PathVariable Long id) {
-        return revisionService.getDueQuestions(id, AuthContext.currentUserId());
+    public RevisionDetailDto get(
+            @PathVariable Long id, @RequestParam(required = false) Long chapterId) {
+        return revisionService.getDueQuestions(id, AuthContext.currentUserId(), chapterId);
     }
 
     @PostMapping("/{id}/submit")

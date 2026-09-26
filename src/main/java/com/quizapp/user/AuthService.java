@@ -6,6 +6,8 @@ import com.quizapp.user.dto.AuthResponse;
 import com.quizapp.user.dto.LoginRequest;
 import com.quizapp.user.dto.ProfileResponse;
 import com.quizapp.user.dto.SignupRequest;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -54,7 +56,34 @@ public class AuthService {
         User user = userRepository
                 .findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
-        return new ProfileResponse(user.getId(), user.getName(), user.getEmail());
+        return new ProfileResponse(
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                user.getCurrentStreak(),
+                user.getLongestStreak());
+    }
+
+    @Transactional
+    public void recordActivity(Long userId) {
+        User user = userRepository
+                .findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate last = user.getLastActivityDate();
+        if (today.equals(last)) {
+            return;
+        }
+        if (last != null && last.equals(today.minusDays(1))) {
+            user.setCurrentStreak(user.getCurrentStreak() + 1);
+        } else {
+            user.setCurrentStreak(1);
+        }
+        if (user.getCurrentStreak() > user.getLongestStreak()) {
+            user.setLongestStreak(user.getCurrentStreak());
+        }
+        user.setLastActivityDate(today);
+        userRepository.save(user);
     }
 
     private AuthResponse toAuthResponse(User user) {

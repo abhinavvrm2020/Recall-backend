@@ -3,6 +3,7 @@ package com.quizapp.revision;
 import com.quizapp.attempt.dto.AnswerItem;
 import com.quizapp.attempt.dto.CheckAnswerRequest;
 import com.quizapp.attempt.dto.CheckAnswerResponse;
+import com.quizapp.chapter.ChapterQuestionRepository;
 import com.quizapp.common.ApiException;
 import com.quizapp.common.util.Futures;
 import com.quizapp.common.util.QuestionPayloadMapper;
@@ -13,10 +14,12 @@ import com.quizapp.revision.dto.RevisionDetailDto;
 import com.quizapp.revision.dto.RevisionListItemDto;
 import com.quizapp.revision.dto.RevisionQuestionDto;
 import com.quizapp.revision.dto.SubmitRevisionResponse;
+import com.quizapp.user.AuthService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -32,22 +35,28 @@ public class RevisionService {
     private final RevisionRepository revisionRepository;
     private final RevisionQuestionRepository revisionQuestionRepository;
     private final QuestionRepository questionRepository;
+    private final ChapterQuestionRepository chapterQuestionRepository;
     private final RevisionAlgorithm revisionAlgorithm;
     private final QuestionPayloadMapper questionPayloadMapper;
+    private final AuthService authService;
     private final ExecutorService virtualExecutor;
 
     public RevisionService(
             RevisionRepository revisionRepository,
             RevisionQuestionRepository revisionQuestionRepository,
             QuestionRepository questionRepository,
+            ChapterQuestionRepository chapterQuestionRepository,
             RevisionAlgorithm revisionAlgorithm,
             QuestionPayloadMapper questionPayloadMapper,
+            AuthService authService,
             @Qualifier(VirtualThreadConfig.VIRTUAL_EXECUTOR) ExecutorService virtualExecutor) {
         this.revisionRepository = revisionRepository;
         this.revisionQuestionRepository = revisionQuestionRepository;
         this.questionRepository = questionRepository;
+        this.chapterQuestionRepository = chapterQuestionRepository;
         this.revisionAlgorithm = revisionAlgorithm;
         this.questionPayloadMapper = questionPayloadMapper;
+        this.authService = authService;
         this.virtualExecutor = virtualExecutor;
     }
 
@@ -83,10 +92,20 @@ public class RevisionService {
     }
 
     @Transactional
-    public RevisionDetailDto getDueQuestions(Long revisionId, Long userId) {
+    public RevisionDetailDto getDueQuestions(Long revisionId, Long userId, Long chapterId) {
         Revision revision = requireOwned(revisionId, userId);
         Instant now = Instant.now();
         List<RevisionQuestion> due = revisionQuestionRepository.findDue(revisionId, now);
+        if (chapterId != null) {
+            Set<Long> chapterQuestionIds = chapterQuestionRepository
+                    .findByChapterIdOrderByPositionAsc(chapterId)
+                    .stream()
+                    .map(cq -> cq.getQuestionId())
+                    .collect(Collectors.toSet());
+            due = due.stream()
+                    .filter(rq -> chapterQuestionIds.contains(rq.getQuestionId()))
+                    .toList();
+        }
         if (!due.isEmpty() && "PENDING".equals(revision.getStatus())) {
             revision.setStatus("IN_PROGRESS");
             revisionRepository.save(revision);
@@ -150,6 +169,7 @@ public class RevisionService {
             revision.setStatus("COMPLETED");
             revisionRepository.save(revision);
         }
+        authService.recordActivity(userId);
         int due = revisionQuestionRepository.findDue(revisionId, Instant.now()).size();
         return new SubmitRevisionResponse(revisionId, revision.getStatus(), due);
     }
@@ -164,8 +184,7 @@ public class RevisionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Question not in revision: " + item.questionId());
         }
         boolean correct = questionPayloadMapper.isCorrect(question, item.selectedOption());
-        boolean slow = questionPayloadMapper.isSlow(question, item.timeTakenMs());
-        revisionAlgorithm.applyRevisionOutcome(revisionQuestion, correct, slow);
+        revisionAlgorithm.applyRevisionOutcome(revisionQuestion, correct, item.confidence());
     }
 
     private Revision requireOwned(Long revisionId, Long userId) {
@@ -187,6 +206,7 @@ public class RevisionService {
                 question.getAllottedTimeMs(),
                 question.getCorrectOption(),
                 questionPayloadMapper.explanation(question),
+                question.getMoreInformation(),
                 revisionQuestion.getReason(),
                 revisionQuestion.getRemainingReviews());
     }

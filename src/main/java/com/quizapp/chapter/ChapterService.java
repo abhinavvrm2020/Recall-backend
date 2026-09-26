@@ -10,6 +10,7 @@ import com.quizapp.chapter.dto.ChapterSubmitResponse;
 import com.quizapp.chapter.dto.ProgressAnswerDto;
 import com.quizapp.chapter.dto.ProgressRequest;
 import com.quizapp.chapter.dto.ProgressSnapshotDto;
+import com.quizapp.chapter.dto.SubjectChaptersResponse;
 import com.quizapp.chapter.dto.SubmitChapterRequest;
 import com.quizapp.common.ApiException;
 import com.quizapp.common.util.QuestionPayloadMapper;
@@ -22,11 +23,14 @@ import com.quizapp.revision.RevisionQuestion;
 import com.quizapp.revision.RevisionQuestionRepository;
 import com.quizapp.revision.RevisionRepository;
 import com.quizapp.subject.SubjectService;
+import com.quizapp.user.AuthService;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -37,6 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ChapterService {
 
+    private static final List<String> OPEN_REVISION_STATUSES = List.of("PENDING", "IN_PROGRESS");
+
     private final ChapterRepository chapterRepository;
     private final ChapterQuestionRepository chapterQuestionRepository;
     private final ChapterProgressRepository progressRepository;
@@ -46,6 +52,7 @@ public class ChapterService {
     private final RevisionRepository revisionRepository;
     private final RevisionQuestionRepository revisionQuestionRepository;
     private final SubjectService subjectService;
+    private final AuthService authService;
     private final ObjectMapper objectMapper;
 
     public ChapterService(
@@ -58,6 +65,7 @@ public class ChapterService {
             RevisionRepository revisionRepository,
             RevisionQuestionRepository revisionQuestionRepository,
             SubjectService subjectService,
+            AuthService authService,
             ObjectMapper objectMapper) {
         this.chapterRepository = chapterRepository;
         this.chapterQuestionRepository = chapterQuestionRepository;
@@ -68,19 +76,42 @@ public class ChapterService {
         this.revisionRepository = revisionRepository;
         this.revisionQuestionRepository = revisionQuestionRepository;
         this.subjectService = subjectService;
+        this.authService = authService;
         this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
-    public List<ChapterListItemDto> listBySubject(Long subjectId, Long userId) {
+    public SubjectChaptersResponse listBySubject(Long subjectId, Long userId) {
         subjectService.requireById(subjectId);
-        return chapterRepository.findBySubjectIdAndStatusOrderBySortOrderAsc(subjectId, "ACTIVE").stream()
+        Instant now = Instant.now();
+        Optional<Revision> openRevision = revisionRepository.findFirstByUserIdAndSubjectIdAndStatusIn(
+                userId, subjectId, OPEN_REVISION_STATUSES);
+        Long subjectRevisionId = openRevision.map(Revision::getId).orElse(null);
+        Set<Long> dueQuestionIds = openRevision
+                .map(revision -> revisionQuestionRepository.findDue(revision.getId(), now).stream()
+                        .map(RevisionQuestion::getQuestionId)
+                        .collect(Collectors.toSet()))
+                .orElse(Set.of());
+        int subjectRevisionDueCount = dueQuestionIds.size();
+
+        List<ChapterListItemDto> chapters = chapterRepository
+                .findBySubjectIdAndStatusOrderBySortOrderAsc(subjectId, "ACTIVE")
+                .stream()
                 .map(chapter -> {
-                    int total = chapterQuestionRepository
-                            .findByChapterIdOrderByPositionAsc(chapter.getId())
-                            .size();
+                    List<ChapterQuestion> chapterQuestions =
+                            chapterQuestionRepository.findByChapterIdOrderByPositionAsc(chapter.getId());
+                    int total = chapterQuestions.size();
                     ChapterProgress progress =
                             progressRepository.findByUserIdAndChapterId(userId, chapter.getId()).orElse(null);
+                    int chapterDueCount = 0;
+                    if (!dueQuestionIds.isEmpty()) {
+                        for (ChapterQuestion chapterQuestion : chapterQuestions) {
+                            if (dueQuestionIds.contains(chapterQuestion.getQuestionId())) {
+                                chapterDueCount++;
+                            }
+                        }
+                    }
+                    Long chapterRevisionId = chapterDueCount > 0 ? subjectRevisionId : null;
                     return new ChapterListItemDto(
                             chapter.getId(),
                             chapter.getTitle(),
@@ -88,9 +119,12 @@ public class ChapterService {
                             progress == null ? "NOT_STARTED" : progress.getStatus(),
                             progress == null ? 0 : progress.getCurrentIndex(),
                             progress == null ? 0 : progress.getCorrectCount(),
-                            progress == null ? 0 : progress.getWrongCount());
+                            progress == null ? 0 : progress.getWrongCount(),
+                            chapterDueCount,
+                            chapterRevisionId);
                 })
                 .toList();
+        return new SubjectChaptersResponse(subjectRevisionId, subjectRevisionDueCount, chapters);
     }
 
     @Transactional(readOnly = true)
@@ -144,6 +178,7 @@ public class ChapterService {
         progress.setAnswersJson(writeAnswers(req.answers()));
         progress.setLastActiveAt(Instant.now());
         progressRepository.save(progress);
+        authService.recordActivity(userId);
     }
 
     @Transactional
@@ -172,7 +207,8 @@ public class ChapterService {
                             answer.questionId(),
                             answer.selectedOption(),
                             questionPayloadMapper.isCorrect(question, answer.selectedOption()),
-                            Math.max(0, answer.timeTakenMs()));
+                            Math.max(0, answer.timeTakenMs()),
+                            answer.confidence());
                 })
                 .toList();
 
@@ -188,19 +224,29 @@ public class ChapterService {
         progress.setCompletedAt(Instant.now());
 
         RevisionSummaryDto revisionSummary = null;
-        List<RevisionAlgorithm.Candidate> candidates = revisionAlgorithm.candidates(scored, questionsById);
-        if (!candidates.isEmpty()) {
-            Revision revision = createPendingRevision(userId, chapter.getSubjectId());
-            for (RevisionAlgorithm.Candidate candidate : candidates) {
-                mergeCandidate(revision.getId(), candidate);
+        Revision revision = upsertPendingRevision(userId, chapter.getSubjectId());
+        for (RevisionAlgorithm.ScoredAnswer answer : scored) {
+            if (answer.correct()
+                    && RevisionAlgorithm.CONFIDENCE_SURE.equals(
+                            RevisionAlgorithm.normalizeConfidence(answer.confidence()))) {
+                graduateFromRevision(revision.getId(), answer.questionId());
             }
-            int candidateCount = revisionQuestionRepository.findByRevisionId(revision.getId()).size();
+        }
+        List<RevisionAlgorithm.Candidate> candidates = revisionAlgorithm.candidates(scored, questionsById);
+        for (RevisionAlgorithm.Candidate candidate : candidates) {
+            mergeCandidate(revision.getId(), candidate);
+        }
+        long activeCount =
+                revisionQuestionRepository.countByRevisionIdAndRemainingReviewsGreaterThan(
+                        revision.getId(), 0);
+        if (activeCount > 0) {
             progress.setRevisionId(revision.getId());
-            revisionSummary = new RevisionSummaryDto(revision.getId(), candidateCount);
+            revisionSummary = new RevisionSummaryDto(revision.getId(), (int) activeCount);
         } else {
             progress.setRevisionId(null);
         }
         progressRepository.save(progress);
+        authService.recordActivity(userId);
 
         int preparednessPct = total > 0 ? (int) Math.round(100.0 * correctCount / total) : 0;
         return new ChapterSubmitResponse(
@@ -257,8 +303,7 @@ public class ChapterService {
             ProgressAnswerDto answer, Map<Long, Question> questionsById) {
         Question question = requireQuestion(questionsById, answer.questionId());
         boolean correct = questionPayloadMapper.isCorrect(question, answer.selectedOption());
-        return new RevisionAlgorithm.ScoredAnswer(
-                question.getId(), correct, Math.max(0, answer.timeTakenMs()));
+        return new RevisionAlgorithm.ScoredAnswer(question.getId(), correct, answer.confidence());
     }
 
     private QuestionDto toQuestionDto(Question question) {
@@ -326,12 +371,26 @@ public class ChapterService {
         }
     }
 
-    private Revision createPendingRevision(Long userId, Long subjectId) {
-        Revision created = new Revision();
-        created.setUserId(userId);
-        created.setSubjectId(subjectId);
-        created.setStatus("PENDING");
-        return revisionRepository.save(created);
+    private void graduateFromRevision(Long revisionId, Long questionId) {
+        revisionQuestionRepository
+                .findByRevisionIdAndQuestionId(revisionId, questionId)
+                .ifPresent(existing -> {
+                    existing.setRemainingReviews(0);
+                    existing.setNextReviewAt(Instant.now().plus(30, ChronoUnit.DAYS));
+                    revisionQuestionRepository.save(existing);
+                });
+    }
+
+    private Revision upsertPendingRevision(Long userId, Long subjectId) {
+        return revisionRepository
+                .findFirstByUserIdAndSubjectIdAndStatus(userId, subjectId, "PENDING")
+                .orElseGet(() -> {
+                    Revision created = new Revision();
+                    created.setUserId(userId);
+                    created.setSubjectId(subjectId);
+                    created.setStatus("PENDING");
+                    return revisionRepository.save(created);
+                });
     }
 
     private void mergeCandidate(Long revisionId, RevisionAlgorithm.Candidate candidate) {
@@ -348,8 +407,11 @@ public class ChapterService {
             revisionQuestionRepository.save(created);
             return;
         }
-        if ("WRONG".equals(candidate.reason())
-                || existing.getRemainingReviews() < candidate.remainingReviews()) {
+        if (RevisionAlgorithm.shouldReplaceCandidate(
+                existing.getReason(),
+                existing.getRemainingReviews(),
+                candidate.reason(),
+                candidate.remainingReviews())) {
             existing.setReason(candidate.reason());
             existing.setRemainingReviews(candidate.remainingReviews());
             existing.setNextReviewAt(candidate.nextReviewAt());

@@ -102,7 +102,10 @@ public class AttemptService {
                 .map(item -> Futures.supply(() -> score(item, questionsById), virtualExecutor))
                 .toList());
 
-        List<UserQuizAttemptQuestion> rows = scored.stream().map(s -> toRow(attempt.getId(), s)).toList();
+        List<UserQuizAttemptQuestion> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < answers.size(); i++) {
+            rows.add(toRow(attempt.getId(), answers.get(i), scored.get(i).correct()));
+        }
         int correctCount = (int) scored.stream().filter(RevisionAlgorithm.ScoredAnswer::correct).count();
 
         attemptQuestionRepository.saveAll(rows);
@@ -152,15 +155,15 @@ public class AttemptService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown question " + item.questionId());
         }
         boolean correct = questionPayloadMapper.isCorrect(question, item.selectedOption());
-        return new RevisionAlgorithm.ScoredAnswer(question.getId(), correct, Math.max(0, item.timeTakenMs()));
+        return new RevisionAlgorithm.ScoredAnswer(question.getId(), correct, item.confidence());
     }
 
-    private static UserQuizAttemptQuestion toRow(Long attemptId, RevisionAlgorithm.ScoredAnswer scored) {
+    private static UserQuizAttemptQuestion toRow(Long attemptId, AnswerItem item, boolean correct) {
         UserQuizAttemptQuestion row = new UserQuizAttemptQuestion();
         row.setAttemptId(attemptId);
-        row.setQuestionId(scored.questionId());
-        row.setCorrect(scored.correct());
-        row.setTimeTakenMs(scored.timeTakenMs());
+        row.setQuestionId(item.questionId());
+        row.setCorrect(correct);
+        row.setTimeTakenMs(Math.max(0, item.timeTakenMs()));
         return row;
     }
 
@@ -195,8 +198,11 @@ public class AttemptService {
             revisionQuestionRepository.save(created);
             return;
         }
-        if ("WRONG".equals(candidate.reason())
-                || existing.getRemainingReviews() < candidate.remainingReviews()) {
+        if (RevisionAlgorithm.shouldReplaceCandidate(
+                existing.getReason(),
+                existing.getRemainingReviews(),
+                candidate.reason(),
+                candidate.remainingReviews())) {
             existing.setReason(candidate.reason());
             existing.setRemainingReviews(candidate.remainingReviews());
             existing.setNextReviewAt(candidate.nextReviewAt());

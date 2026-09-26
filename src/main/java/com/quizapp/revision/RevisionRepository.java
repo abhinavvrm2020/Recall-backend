@@ -7,4 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RevisionRepository extends JpaRepository<Revision, Long> {
     List<Revision> findByUserIdAndStatusInOrderByCreatedAtDesc(Long userId, List<String> statuses);
     Optional<Revision> findFirstByUserIdAndSubjectIdAndStatus(Long userId, Long subjectId, String status);
+
+    Optional<Revision> findFirstByUserIdAndSubjectIdAndStatusIn(
+            Long userId, Long subjectId, List<String> statuses);
 }

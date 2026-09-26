@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.quizapp.chapter.ChapterQuestionRepository;
 import com.quizapp.common.util.QuestionPayloadMapper;
+import com.quizapp.user.AuthService;
 import com.quizapp.question.Question;
 import com.quizapp.question.QuestionRepository;
 import com.quizapp.revision.dto.RevisionDetailDto;
@@ -25,8 +27,17 @@ class RevisionServiceDetailTest {
     private final RevisionAlgorithm algorithm = mock(RevisionAlgorithm.class);
     private final QuestionPayloadMapper payloadMapper = mock(QuestionPayloadMapper.class);
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-    private final RevisionService service =
-            new RevisionService(revisions, revisionQuestions, questions, algorithm, payloadMapper, executor);
+    private final ChapterQuestionRepository chapterQuestions = mock(ChapterQuestionRepository.class);
+    private final AuthService authService = mock(AuthService.class);
+    private final RevisionService service = new RevisionService(
+            revisions,
+            revisionQuestions,
+            questions,
+            chapterQuestions,
+            algorithm,
+            payloadMapper,
+            authService,
+            executor);
 
     @AfterEach
     void closeExecutor() {
@@ -60,7 +71,7 @@ class RevisionServiceDetailTest {
         when(payloadMapper.options(question)).thenReturn(Map.of("a", "No", "b", "Yes"));
         when(payloadMapper.explanation(question)).thenReturn("Because.");
 
-        RevisionDetailDto detail = service.getDueQuestions(5L, 42L);
+        RevisionDetailDto detail = service.getDueQuestions(5L, 42L, null);
 
         assertThat(detail.questions()).hasSize(1);
         assertThat(detail.questions().getFirst().correctOption()).isEqualTo("b");

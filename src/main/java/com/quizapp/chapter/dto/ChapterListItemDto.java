@@ -7,4 +7,6 @@ public record ChapterListItemDto(
         String progressStatus,
         int currentIndex,
         int correctCount,
-        int wrongCount) {}
+        int wrongCount,
+        int revisionDueCount,
+        Long revisionId) {}

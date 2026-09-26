@@ -10,5 +10,6 @@ public record RevisionQuestionDto(
         int allottedTimeMs,
         String correctOption,
         String explanation,
+        String moreInformation,
         String reason,
         int remainingReviews) {}

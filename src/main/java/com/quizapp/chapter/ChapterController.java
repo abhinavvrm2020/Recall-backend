@@ -1,13 +1,12 @@
 package com.quizapp.chapter;
 
 import com.quizapp.chapter.dto.ChapterDetailDto;
-import com.quizapp.chapter.dto.ChapterListItemDto;
+import com.quizapp.chapter.dto.SubjectChaptersResponse;
 import com.quizapp.chapter.dto.ChapterSubmitResponse;
 import com.quizapp.chapter.dto.ProgressRequest;
 import com.quizapp.chapter.dto.SubmitChapterRequest;
 import com.quizapp.common.util.AuthContext;
 import jakarta.validation.Valid;
-import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,7 +27,7 @@ public class ChapterController {
     }
 
     @GetMapping("/subjects/{id}/chapters")
-    public List<ChapterListItemDto> listBySubject(@PathVariable Long id) {
+    public SubjectChaptersResponse listBySubject(@PathVariable Long id) {
         return chapterService.listBySubject(id, AuthContext.currentUserId());
     }
 

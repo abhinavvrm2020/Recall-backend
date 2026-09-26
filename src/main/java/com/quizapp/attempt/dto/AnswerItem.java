@@ -6,4 +6,5 @@ import jakarta.validation.constraints.NotNull;
 public record AnswerItem(
         @NotNull Long questionId,
         @NotBlank String selectedOption,
-        @NotNull Integer timeTakenMs) {}
+        @NotNull Integer timeTakenMs,
+        String confidence) {}
