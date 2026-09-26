@@ -268,7 +268,8 @@ public class ChapterService {
                 questionPayloadMapper.options(question),
                 question.getAllottedTimeMs(),
                 question.getCorrectOption(),
-                questionPayloadMapper.explanation(question));
+                questionPayloadMapper.explanation(question),
+                question.getMoreInformation());
     }
 
     private ProgressSnapshotDto snapshot(ChapterProgress progress, int totalQuestions) {

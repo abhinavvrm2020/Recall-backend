@@ -8,4 +8,5 @@ public record QuestionDto(
         Map<String, String> options,
         int allottedTimeMs,
         String correctOption,
-        String explanation) {}
+        String explanation,
+        String moreInformation) {}

@@ -125,6 +125,7 @@ public class QuizService {
                 questionPayloadMapper.options(question),
                 question.getAllottedTimeMs(),
                 question.getCorrectOption(),
-                questionPayloadMapper.explanation(question));
+                questionPayloadMapper.explanation(question),
+                question.getMoreInformation());
     }
 }

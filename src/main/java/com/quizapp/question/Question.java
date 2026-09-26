@@ -25,6 +25,9 @@ public class Question {
     @Column(name = "allotted_time_ms", nullable = false)
     private int allottedTimeMs = 60_000;
 
+    @Column(name = "more_information")
+    private String moreInformation;
+
     public Long getId() { return id; }
     public String getQuestionJson() { return questionJson; }
     public void setQuestionJson(String questionJson) { this.questionJson = questionJson; }
@@ -34,4 +37,6 @@ public class Question {
     public void setSubjectId(Long subjectId) { this.subjectId = subjectId; }
     public int getAllottedTimeMs() { return allottedTimeMs; }
     public void setAllottedTimeMs(int allottedTimeMs) { this.allottedTimeMs = allottedTimeMs; }
+    public String getMoreInformation() { return moreInformation; }
+    public void setMoreInformation(String moreInformation) { this.moreInformation = moreInformation; }
 }
